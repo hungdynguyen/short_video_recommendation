@@ -84,6 +84,10 @@ def main() -> None:
                 out = model(frms)  # [num_frames, 768]
                 # Mean pooling across frames
                 video_feature = torch.mean(out, dim=0, keepdim=True)  # [1, 768]
+                
+                # L2 normalize to match text embeddings (bge-m3 is auto-normalized)
+                norm = torch.norm(video_feature, p=2, dim=1, keepdim=True).clamp(min=1e-8)
+                video_feature = video_feature / norm
 
             all_features.append(video_feature.cpu().numpy())
             ids.append(video_id)

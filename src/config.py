@@ -5,7 +5,7 @@ class Config:
     """Central place for paths and hyper-parameters."""
 
     # Raw/processed data
-    RAW_INTERACTION_PATH = "./data/raw_items/interaction_final_cleaned.csv"
+    RAW_INTERACTION_PATH = "./data/raw_items/interaction_final.csv"
     RAW_VIDEO_DIR = "./data/raw_items/videos"
     PROCESSED_DIR = "./data/processed"
     MODEL_SAVE_PATH = "./data/models"
@@ -18,6 +18,8 @@ class Config:
     # Preprocess outputs used by training
     TRAIN_PARQUET = f"{PROCESSED_DIR}/train_user.parquet"
     VAL_PARQUET = f"{PROCESSED_DIR}/val_user.parquet"
+    VAL_COLD_PARQUET = f"{PROCESSED_DIR}/val_cold.parquet"  # Cold-start users (<=5 interactions)
+    VAL_WARM_PARQUET = f"{PROCESSED_DIR}/val_warm.parquet"  # Warm users (>5 interactions)
     MAPPINGS_JSON = f"{PROCESSED_DIR}/user_mappings.json"
 
     # Pre-computed item features
@@ -27,26 +29,30 @@ class Config:
     VIDEO_IDS_PATH = f"{PROCESSED_DIR}/video_ids.npy"
 
     # Extraction Params
-    TEXT_MODEL_NAME = "paraphrase-albert-small-v2"  # model to extract text features (title + transcript)
-    TEXT_BATCH_SIZE = 32  # batch size for text feature extraction
+    TEXT_MODEL_NAME = "BAAI/bge-m3"  # Multilingual model (100+ languages including Chinese)
+    TEXT_BATCH_SIZE = 16  # Giảm batch size vì bge-m3 lớn hơn (1024-dim output)
     VIDEO_NUM_FRAMES = 16  # số frame trích xuất từ mỗi video
     VIDEO_IMG_SIZE = 224  # kích thước ảnh đầu vào cho backbone video model
 
     # Data Params
     MAX_HISTORY = 50  # Lấy 50 video gần nhất
 
-    TEXT_DIM = 768   # Kích thước vector text feature (paraphrase-albert-small-v2)
+    TEXT_DIM = 1024  # BAAI/bge-m3 output dimension (thay vì 768)
     VIDEO_DIM = 768  # Kích thước vector video feature (ViT mean pooling)
-    COMBINED_DIM = 1536  # TEXT_DIM + VIDEO_DIM (concatenated)
-    EMBED_DIM = 1024  # Kích thước vector chung sau projection
+    COMBINED_DIM = 1792  # TEXT_DIM (1024) + VIDEO_DIM (768)
+    EMBED_DIM = 512  # Final embedding dimension for dot product
 
     # Model Params
     BERT_MODEL_NAME = "distilbert-base-multilingual-cased"
 
-    # Training Params
-    BATCH_SIZE = 256  # Giảm để batchnorm ổn định
-    EPOCHS = 30
-    LR = 1e-4  # Giảm learning rate để tránh NaN
+    # Training Params (Optimized with TransformerEncoder)
+    BATCH_SIZE = 64      # Nhỏ hơn cho dataset nhỏ
+    LEARNING_RATE = 1e-4  # Higher LR for faster convergence
+    WEIGHT_DECAY = 1e-4   # Regularization
+    DROPOUT = 0.2         # Reduced dropout (TransformerEncoder has internal dropout)
+    EPOCHS = 20           # More epochs for attention to converge
+    WARMUP_STEPS = 200    # Longer warmup for TransformerEncoder
+    LR = 1e-4  # Consistent with LEARNING_RATE
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
     NUM_WORKERS = 4
 

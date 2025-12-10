@@ -13,7 +13,7 @@ from src.config import Config
 from src.scripts.extract_text_features import main as run_text_extract
 from src.scripts.extract_video_features import main as run_video_extract
 from src.scripts.preprocess import preprocess_user_data
-
+from src.scripts.build_video_metadata import main as build_video_metadata
 
 def _print_check(path_str: str) -> None:
     path = Path(path_str)
@@ -24,11 +24,15 @@ def _print_check(path_str: str) -> None:
 
 def main() -> None:
     print("=== Offline preprocess: start ===")
+
+    print("\nBuilding video metadata pickle")
+    build_video_metadata()
+    
     print("-> Extracting text features")
-    # run_text_extract()
+    run_text_extract()
 
     print("-> Extracting video features")
-    # run_video_extract()
+    run_video_extract()
 
     print("-> Building user parquet & mappings")
     preprocess_user_data()

@@ -1,39 +1,79 @@
+"""Pure Content-Based ItemTower - No ID embeddings, only content features."""
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 
 class ItemTower(nn.Module):
-    def __init__(self, num_items, config):
+    def __init__(self, config):
+        """Pure content-based ItemTower without ID embeddings.
+        
+        Args:
+            config: Config object with COMBINED_DIM, EMBED_DIM, DROPOUT
+        """
         super().__init__()
         
-        # 1. ID Embedding
-        self.item_id_emb = nn.Embedding(num_items + 1, 256)
-        
-        # 2. Projection head for concatenated text+video features
-        # Input: 256 (ID) + 1536 (text 768 + video 768) = 1792
-        # Output: 1024
-        fusion_in = 256 + config.COMBINED_DIM
-        
-        self.projection_head = nn.Sequential(
-            nn.Linear(fusion_in, 1280),
+        # 1. Projection for text features (1024 → 256) - bge-m3 output
+        self.text_proj = nn.Sequential(
+            nn.Linear(config.TEXT_DIM, 512),
             nn.ReLU(),
-            nn.Linear(1280, config.EMBED_DIM)  # 1024
+            nn.Dropout(config.DROPOUT),
+            nn.Linear(512, 256)
         )
+        
+        # 2. Projection for video features (768 → 192)
+        self.video_proj = nn.Sequential(
+            nn.Linear(config.VIDEO_DIM, 384),
+            nn.ReLU(),
+            nn.Dropout(config.DROPOUT),
+            nn.Linear(384, 192)
+        )
+        
+        # 3. Projection for numerical metadata (author_fans_count, duration)
+        self.num_proj = nn.Linear(2, 64)
+        
+        # 4. Final MLP: 256 (text) + 192 (video) + 64 (num) = 512 → 512
+        fusion_in = 256 + 192 + 64
+        
+        self.fusion_mlp = nn.Sequential(
+            nn.Linear(fusion_in, config.EMBED_DIM),  # 512 → 512 direct
+            nn.ReLU(),
+            nn.Dropout(config.DROPOUT)
+        )
+        
+        # REMOVED: Custom weight initialization (PyTorch default is better)
 
     def forward(self, batch):
-        # batch['pid']: [B]
-        # batch['text_feat']: [B, 768]
-        # batch['video_feat']: [B, 768]
+        """
+        Args:
+            batch: dict with keys:
+                - text_feat: [B, 768]
+                - video_feat: [B, 768]
+                - author_fans_count: [B] (float)
+                - duration: [B] (float)
         
-        id_v = self.item_id_emb(batch['pid'])  # [B, 256]
+        Returns:
+            item_emb: [B, 512] normalized embeddings
+        """
+        # Transform content features
+        # Note: Both text and video features are already L2 normalized during extraction
+        text_transformed = self.text_proj(batch['text_feat'])    # [B, 256]
+        video_transformed = self.video_proj(batch['video_feat'])  # [B, 192]
         
-        # Concatenate text and video features
-        combined_feat = torch.cat([batch['text_feat'], batch['video_feat']], dim=1)  # [B, 1536]
+        # Numerical metadata (already MinMax scaled, no NaN/Inf)
+        nums = torch.stack([batch['author_fans_count'], batch['duration']], dim=1)  # [B, 2]
+        num_transformed = self.num_proj(nums)  # [B, 64]
         
-        # Concatenate ID embedding with combined features
-        concat = torch.cat([id_v, combined_feat], dim=1)  # [B, 1792]
+        # Concatenate all features
+        concat = torch.cat([
+            text_transformed, 
+            video_transformed, 
+            num_transformed
+        ], dim=1)  # [B, 512]
         
-        # Project to final embedding
-        # Avoid NaN when vector is all-zero by adding eps in normalization
-        return F.normalize(self.projection_head(concat), p=2, dim=1, eps=1e-8)
+        # Final projection
+        item_raw = self.fusion_mlp(concat)
+        
+        # L2 normalization (clamp prevents division by zero for edge cases)
+        norm = torch.norm(item_raw, p=2, dim=1, keepdim=True).clamp(min=1e-8)
+        return item_raw / norm

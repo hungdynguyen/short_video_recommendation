@@ -35,18 +35,22 @@ def recall_at_k(logits: torch.Tensor, k: int) -> float:
     return hits.mean().item()
 
 
-def main() -> None:
-    ckpt_path = latest_checkpoint(Path(Config.MODEL_SAVE_PATH))
-
-    print("=== Eval Two-Tower ===")
-    print(f"Device: {Config.DEVICE}")
-    print(f"Checkpoint: {ckpt_path}")
-
-    # Dataset & loader (use val parquet)
+def evaluate_subset(parquet_path: str, ckpt_path: Path, ds_template: FullTrainingDataset) -> dict:
+    """Evaluate model on a specific parquet subset."""
     ds = FullTrainingDataset(
-        parquet_path=Config.VAL_PARQUET,
+        parquet_path=parquet_path,
         mappings_path=Config.MAPPINGS_JSON,
     )
+    
+    if len(ds) == 0:
+        return {
+            'loss': 0.0,
+            'recall1': 0.0,
+            'recall5': 0.0,
+            'recall10': 0.0,
+            'num_samples': 0
+        }
+    
     loader = DataLoader(
         ds,
         batch_size=Config.BATCH_SIZE,
@@ -57,7 +61,7 @@ def main() -> None:
 
     mapping_sizes = {k: len(v) for k, v in ds.mappings.items()}
     user_tower = UserTower(config=Config, mapping_sizes=mapping_sizes)
-    item_tower = ItemTower(config=Config, num_items=mapping_sizes.get('pid', 50000))
+    item_tower = ItemTower(config=Config)
     model = RecModel(user_tower, item_tower).to(Config.DEVICE)
 
     state = torch.load(ckpt_path, map_location=Config.DEVICE)
@@ -92,11 +96,61 @@ def main() -> None:
     r5 = sum(recall5_list) / max(1, len(recall5_list))
     r10 = sum(recall10_list) / max(1, len(recall10_list))
 
-    print("\n=== Eval Results ===")
-    print(f"Loss: {avg_loss:.4f}")
-    print(f"Recall@1:  {r1:.4f}")
-    print(f"Recall@5:  {r5:.4f}")
-    print(f"Recall@10: {r10:.4f}")
+    return {
+        'loss': avg_loss,
+        'recall1': r1,
+        'recall5': r5,
+        'recall10': r10,
+        'num_samples': len(ds)
+    }
+
+
+def main() -> None:
+    ckpt_path = latest_checkpoint(Path(Config.MODEL_SAVE_PATH))
+
+    print("=== Eval Two-Tower ===")
+    print(f"Device: {Config.DEVICE}")
+    print(f"Checkpoint: {ckpt_path}")
+
+    # Load template dataset for mappings
+    ds_template = FullTrainingDataset(
+        parquet_path=Config.VAL_PARQUET,
+        mappings_path=Config.MAPPINGS_JSON,
+    )
+
+    # Evaluate on all validation data
+    print("\n=== Overall Validation Set ===")
+    results_all = evaluate_subset(Config.VAL_PARQUET, ckpt_path, ds_template)
+    print(f"Samples: {results_all['num_samples']}")
+    print(f"Loss: {results_all['loss']:.4f}")
+    print(f"Recall@1:  {results_all['recall1']:.4f}")
+    print(f"Recall@5:  {results_all['recall5']:.4f}")
+    print(f"Recall@10: {results_all['recall10']:.4f}")
+
+    # Evaluate on true cold-start users (NO history)
+    print("\n=== True Cold-Start Users (NO History) ===")
+    results_cold = evaluate_subset(Config.VAL_COLD_PARQUET, ckpt_path, ds_template)
+    print(f"Samples: {results_cold['num_samples']}")
+    if results_cold['num_samples'] > 0:
+        print(f"Loss: {results_cold['loss']:.4f}")
+        print(f"Recall@1:  {results_cold['recall1']:.4f}")
+        print(f"Recall@5:  {results_cold['recall5']:.4f}")
+        print(f"Recall@10: {results_cold['recall10']:.4f}")
+    else:
+        print("No cold-start samples found.")
+
+    # Evaluate on warm users (with normal history)
+    print("\n=== Warm Users (With History) ===")
+    results_warm = evaluate_subset(Config.VAL_WARM_PARQUET, ckpt_path, ds_template)
+    print(f"Samples: {results_warm['num_samples']}")
+    if results_warm['num_samples'] > 0:
+        print(f"Loss: {results_warm['loss']:.4f}")
+        print(f"Recall@1:  {results_warm['recall1']:.4f}")
+        print(f"Recall@5:  {results_warm['recall5']:.4f}")
+        print(f"Recall@10: {results_warm['recall10']:.4f}")
+    else:
+        print("No warm samples found.")
+
 
 
 if __name__ == "__main__":
