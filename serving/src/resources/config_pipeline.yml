@@ -1,0 +1,7 @@
+# Search configuration for the pipeline
+
+search_config:
+  parameters:
+    dimension: 512  # Example dimension for embeddings
+  top_k: 10  # Number of top videos to retrieve
+  reranker: true  # Enable reranking

@@ -1,0 +1,7 @@
+torch>=2.5.1
+qdrant-client
+transformers>=4.57.3
+PyYAML>=6.0
+numpy>=1.24.0
+python-dotenv>=1.0.0
+streamlit
